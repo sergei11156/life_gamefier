@@ -11,21 +11,17 @@ use walkdir::WalkDir;
 struct FrontMatter {
     date: Option<String>,
     XP: Option<u32>,
-    // Добавьте другие поля, если необходимо
 }
 
-fn parse_yaml_front_matter(content: &str) -> Result<(FrontMatter, String), Box<dyn std::error::Error>> {
-    let re = Regex::new(r"(?s)^---\n(.*?)\n---\n(.*)")?;
+fn parse_yaml_front_matter(content: &str) -> Result<FrontMatter, Box<dyn std::error::Error>> {
+    let re = Regex::new(r"(?s)^---\n(.*?)\n---\n")?;
 
     if let Some(captures) = re.captures(content) {
         let yaml_str = &captures[1];
-        let rest_of_content = &captures[2];
-
         let front_matter: FrontMatter = serde_yaml::from_str(yaml_str)?;
-
-        Ok((front_matter, rest_of_content.to_string()))
+        Ok(front_matter)
     } else {
-        Ok((FrontMatter { date: None, XP: None }, content.to_string()))
+        Ok(FrontMatter { date: None, XP: None })
     }
 }
 
@@ -43,7 +39,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let entry = entry?;
         if entry.file_type().is_file() && entry.path().extension().and_then(|s| s.to_str()) == Some("md") {
             let content = fs::read_to_string(entry.path())?;
-            let (front_matter, _) = parse_yaml_front_matter(&content)?;
+            let front_matter = parse_yaml_front_matter(&content)?;
 
             if let Some(xp) = front_matter.XP {
                 total_xp += xp;
@@ -77,18 +73,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let entry = entry?;
                 if entry.file_type().is_file() && entry.path().extension().and_then(|s| s.to_str()) == Some("md") {
                     let content = fs::read_to_string(entry.path())?;
-                    let (front_matter, body) = parse_yaml_front_matter(&content)?;
+                    let front_matter = parse_yaml_front_matter(&content)?;
 
                     if let Some(date_str) = front_matter.date {
                         if let Ok(file_date) = NaiveDateTime::parse_from_str(&date_str, "%Y-%m-%dT%H:%M:%S") {
                             if file_date >= cutoff_date {
-                                experiences.push((file_date, body));
+                                experiences.push((file_date, entry.file_name().to_string_lossy().to_string(), content));
                             } else {
                                 continue;
                             }
                         } else if let Ok(file_date) = NaiveDateTime::parse_from_str(&format!("{}T00:00:00", date_str), "%Y-%m-%dT%H:%M:%S") {
                             if file_date >= cutoff_date {
-                                experiences.push((file_date, body));
+                                experiences.push((file_date, entry.file_name().to_string_lossy().to_string(), content));
                             } else {
                                 continue;
                             }
@@ -100,15 +96,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             // Сортируем опыты по дате
-            experiences.sort_by_key(|(date, _)| *date);
+            experiences.sort_by_key(|(date, _, _)| *date);
 
             // Записываем опыты в файл
             let output_file = "filtered_experiences.md";
             let mut output = fs::File::create(output_file)?;
 
-            for (_, body) in experiences {
+            for (_, file_name, content) in experiences {
                 use std::io::Write;
-                writeln!(output, "{}", body)?;
+                writeln!(output, "# {}", file_name)?;
+                writeln!(output, "{}", content)?;
                 writeln!(output, "\n---\n")?;
             }
 
